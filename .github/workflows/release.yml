@@ -1,0 +1,64 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Production Build
+        run: cargo build --release
+
+      - name: Prepare Artifacts
+        shell: bash
+        run: |
+          mkdir -p staging
+          cp target/release/bad_apple.exe staging/bad_apple_$(git rev-parse --short HEAD).exe
+
+      - name: Generate Randomized Metadata
+        id: meta
+        shell: bash
+        run: |
+          TIMESTAMP=$(date +'%Y%m%d%H%M')
+          RANDOM_ID=$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)
+          TAG_NAME="v${TIMESTAMP}-${RANDOM_ID}"
+          TITLES=("Infection_Success_${RANDOM_ID}" "Shadow_Apple_$(date +%s)" "Neural_Glitched_Artifact" "BadApple_Binary_Stream")
+          SELECTED_TITLE=${TITLES[$(( RANDOM % ${#TITLES[@]} ))]}
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "release_title=$SELECTED_TITLE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.release_title }}
+          body: |
+            ## Automated Build Synthesis
+            - **Commit Hash**: `${{ github.sha }}`
+            - **Build Engine**: LLVM / Rust Stable
+            - **Optimization**: Size-Optimized (Z), LTO Enabled
+            - **Status**: [COMPLETED]
+          files: staging/*.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
