@@ -26,13 +26,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Production Build
-        run: cargo build --release
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Prepare Artifacts
+      - name: Analyze Binary & Prepare Artifacts
+        id: analysis
         shell: bash
         run: |
           mkdir -p staging
-          cp target/release/bad_apple.exe staging/bad_apple_$(git rev-parse --short HEAD).exe
+          BIN_PATH="target/x86_64-pc-windows-msvc/release/bad_apple.exe"
+          TARGET_BIN="staging/bad_apple_$(git rev-parse --short HEAD).exe"
+          cp "$BIN_PATH" "$TARGET_BIN"
+          echo "DUMPBIN_OUTPUT<<EOF" >> $GITHUB_OUTPUT
+          dumpbin /dependents "$BIN_PATH" | grep ".dll" | sed 's/^[[:space:]]*//' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT          
+          echo "target_bin=$TARGET_BIN" >> $GITHUB_OUTPUT
 
       - name: Generate Randomized Metadata
         id: meta
@@ -52,11 +61,12 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag_name }}
           name: ${{ steps.meta.outputs.release_title }}
           body: |
-            ## Automated Build Synthesis
-            - **Commit Hash**: `${{ github.sha }}`
-            - **Build Engine**: LLVM / Rust Stable
-            - **Optimization**: Size-Optimized (Z), LTO Enabled
-            - **Status**: [COMPLETED]
+            ### Technical Analysis (Static Linkage Check)
+            The following runtime dependencies were identified in the binary:
+            ```text
+            ${{ steps.analysis.outputs.DUMPBIN_OUTPUT }}
+            ```
+            *Verification: If VCRUNTIME140.dll is absent, static linking is successful.*
           files: staging/*.exe
           draft: false
           prerelease: false
