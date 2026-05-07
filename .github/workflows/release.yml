@@ -22,6 +22,9 @@ jobs:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
 
+      - name: Set up MSVC Dev Prompt
+        uses: ilamont/setup-vcvars@v1
+
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
@@ -32,16 +35,19 @@ jobs:
 
       - name: Analyze Binary & Prepare Artifacts
         id: analysis
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p staging
-          BIN_PATH="target/x86_64-pc-windows-msvc/release/bad_apple.exe"
-          TARGET_BIN="staging/bad_apple_$(git rev-parse --short HEAD).exe"
-          cp "$BIN_PATH" "$TARGET_BIN"
-          echo "DUMPBIN_OUTPUT<<EOF" >> $GITHUB_OUTPUT
-          dumpbin /dependents "$BIN_PATH" | grep ".dll" | sed 's/^[[:space:]]*//' >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT          
-          echo "target_bin=$TARGET_BIN" >> $GITHUB_OUTPUT
+          $binPath = "target/x86_64-pc-windows-msvc/release/bad_apple.exe"
+          $shortHash = $(git rev-parse --short HEAD)
+          $targetBin = "staging/bad_apple_$shortHash.exe"
+          New-Item -ItemType Directory -Force -Path staging
+          Copy-Item $binPath $targetBin
+          $dumpOutput = dumpbin /dependents $binPath | Select-String ".dll" | ForEach-Object { $_.ToString().Trim() }
+          $outputString = $dumpOutput -join "`n"
+          "DUMPBIN_OUTPUT<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $outputString | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "target_bin=$targetBin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Generate Randomized Metadata
         id: meta
@@ -49,11 +55,8 @@ jobs:
         run: |
           TIMESTAMP=$(date +'%Y%m%d%H%M')
           RANDOM_ID=$(head /dev/urandom | tr -dc a-z0-9 | head -c 6)
-          TAG_NAME="v${TIMESTAMP}-${RANDOM_ID}"
-          TITLES=("Infection_Success_${RANDOM_ID}" "Shadow_Apple_$(date +%s)" "Neural_Glitched_Artifact" "BadApple_Binary_Stream")
-          SELECTED_TITLE=${TITLES[$(( RANDOM % ${#TITLES[@]} ))]}
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-          echo "release_title=$SELECTED_TITLE" >> $GITHUB_OUTPUT
+          echo "tag_name=v${TIMESTAMP}-${RANDOM_ID}" >> $GITHUB_OUTPUT
+          echo "release_title=Infection_Success_${RANDOM_ID}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
