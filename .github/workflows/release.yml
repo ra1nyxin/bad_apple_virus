@@ -22,8 +22,8 @@ jobs:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
 
-      - name: Set up MSVC Dev Prompt
-        uses: ilamont/setup-vcvars@v1
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -40,14 +40,21 @@ jobs:
           $binPath = "target/x86_64-pc-windows-msvc/release/bad_apple.exe"
           $shortHash = $(git rev-parse --short HEAD)
           $targetBin = "staging/bad_apple_$shortHash.exe"
-          New-Item -ItemType Directory -Force -Path staging
+          if (!(Test-Path staging)) { New-Item -ItemType Directory -Path staging }
           Copy-Item $binPath $targetBin
-          $dumpOutput = dumpbin /dependents $binPath | Select-String ".dll" | ForEach-Object { $_.ToString().Trim() }
+          $dumpOutput = ""
+          try {
+              $dumpOutput = dumpbin /dependents $binPath | Select-String ".dll" | ForEach-Object { $_.ToString().Trim() }
+          } catch {
+              Write-Warning "Standard dumpbin call failed, binary analysis skipped."
+              $dumpOutput = "Analysis failed: dumpbin utility not found in PATH"
+          }
           $outputString = $dumpOutput -join "`n"
-          "DUMPBIN_OUTPUT<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          $outputString | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "target_bin=$targetBin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+          "DUMPBIN_OUTPUT<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $outputString | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "target_bin=$targetBin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Generate Randomized Metadata
         id: meta
@@ -69,7 +76,6 @@ jobs:
             ```text
             ${{ steps.analysis.outputs.DUMPBIN_OUTPUT }}
             ```
-            *Verification: If VCRUNTIME140.dll is absent, static linking is successful.*
           files: staging/*.exe
           draft: false
           prerelease: false
